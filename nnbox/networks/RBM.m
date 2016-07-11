@@ -195,12 +195,30 @@ classdef RBM < handle & AbstractNet
                     % Mean square reconstruction error
                     msre = sqrt(mean(mean((R - X) .^2)));
                     fprintf('%03d , msre = %f\n', e, msre);
-                    if abs(msreold-msre) < opts.momentumChangeDif ...
+                    if isfield (opts,'momentumChangeDif') && ...
+                        abs(msreold-msre) < opts.momentumChangeDif ...
                         && opts.momentum < opts.momentumChange
                         disp('Momentum change')
                         opts.momentum = opts.momentumChange;
                     end
                     msreold = msre;
+                    
+                   
+                end
+                if isfield(opts, 'displayWeights') ...
+                        && mod(e, opts.displayWeights) == 0
+                    weights = self.W;
+                    figure(4);
+                    [~, order] = sort(sum(weights .^2), 'descend');
+                    colormap gray
+                    for i = 1:20
+                        subplot(5, 4, i);
+                        imagesc(reshape(weights(:, order(i)), 6, 6));
+                        axis image
+                        axis off
+                        
+                    end
+                    drawnow
                 end
                 if isfield(opts, 'calcHist') ...
                         && mod(e, opts.calcHist) == 0
@@ -336,6 +354,23 @@ classdef RBM < handle & AbstractNet
             db      = - (sum(vis0, 2) - sum(vis, 2)) / nObs;
         end % cd(self, X)
         
+        function  Images = generateFromRandom(self, nbout, nbiter)
+            Images = zeros(self.nVis,nbout);
+            for i =1:nbout
+                vis0 = rand(self.nVis,1);
+                hid0 = self.vis2hidprob(vis0);
+
+                hid = hid0;
+                vis = vis0;
+                for k = 1:nbiter
+                    vis = self.hid2vis(hid);
+                    hid = self.vis2hidprob(vis);
+                end
+                Images(:,i) = vis;
+            end
+
+        end
+
     end % methods
     
     methods(Static)
