@@ -13,6 +13,9 @@ classdef SoftmaxPerceptron < handle & AbstractNet
         
         dWold;
         dbold;
+        
+        gamma;
+        beta;
     end
     
     methods
@@ -50,6 +53,8 @@ classdef SoftmaxPerceptron < handle & AbstractNet
             obj.W = 2*range * (rand(inSz, outSz) - .5);
             obj.dWold = zeros(inSz,outSz);
             obj.b = zeros(outSz, 1);
+                        obj.gamma =  2*range*(rand(inSz,1)-.5);
+                        obj.beta = zeros(inSz,1);
             obj.dbold = obj.b;
         end
         
@@ -66,9 +71,13 @@ classdef SoftmaxPerceptron < handle & AbstractNet
         function [Y, A] = compute(self, X)
             % training with dropout
             if isfield(self.trainOpts, 'DAG')
-                    add = opts.lRate * self.dWold * opts.momentum;
-                else
-                    add = 0;
+                add = opts.lRate * self.dWold * opts.momentum;
+            else
+                add = 0;
+            end
+            if isfield(self.trainOpts,'normInput')
+                [X,A.Xmu,A.Var] = whiten(X,0.0001);
+                X = diag(self.gamma)*X+repmat(self.beta,1,size(X,ndims(X)));
             end
             if nargout == 2 && isfield(self.trainOpts, 'dropout')
                 A.mask  = rand(self.insize(), 1) > self.trainOpts.dropout;
@@ -112,6 +121,15 @@ classdef SoftmaxPerceptron < handle & AbstractNet
             self.dbold = G.db;
             % Error backpropagation
             inErr = self.W * delta;
+            if isfield(self.trainOpts,'normInput')
+                dX = inErr .* repmat(self.gamma,1,size(inErr,2));
+                dsigma = -1/2 * sum(dX .* A.Xmu .* repmat(A.Var .^(-3/2),1,size(inErr,2)),2);
+                dmu = -1 * sum(dX .* repmat(A.Var.^(-1/2),1,size(inErr,2)),2);
+                dmu = dmu + dsigma .* sum(-2*A.Xmu,2)/size(inErr,2);
+                inErr = dX .* repmat(A.Var .^ (-1/2),1,size(inErr,2)) + repmat(dsigma,1,size(inErr,2)) * 2 .* A.Xmu / size(inErr,2) + repmat(dmu,1,size(inErr,2)) / size(inErr,2);
+                G.dgamma = sum(A.X .* repmat(self.gamma,1,size(inErr,2)),2);
+                G.dbeta = sum(inErr,2);
+            end
             
             % Dropout
             if isfield(self.trainOpts, 'dropout')
@@ -127,6 +145,10 @@ classdef SoftmaxPerceptron < handle & AbstractNet
             % Gradient update
             self.W = self.W - opts.lRate * G.dW;
             self.b = self.b - opts.lRate * G.db;
+            if isfield(opts,'normInput')
+                self.gamma = self.gamma - opts.lRate * G.dgamma;
+                self.beta = self.beta - opts.lRate*G.dbeta;
+            end
             
             % Weight decay
             if isfield(opts, 'decayNorm') && opts.decayNorm == 2

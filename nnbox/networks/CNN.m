@@ -19,6 +19,9 @@ classdef CNN < handle & AbstractNet
         filters;      % filters weights
         b;            % biases
         
+        gamma;
+        beta;
+        
         dWold;        % previous delta in weights
         dbold;        % previous delta in biases
     end
