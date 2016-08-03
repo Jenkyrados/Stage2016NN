@@ -37,7 +37,7 @@ classdef AbstractNet < handle & matlab.mixin.Copyable
         % PRETRAIN Unsupervised training
         %   PRETRAIN(obj, X, opts) Perform unsupervized training on input 
         %   data X.
-        pretrain(self, X)
+        pretrain(self, X, preve)
 
         % BACKPROP Compute gradient update and back-propagated error
         %   [G, inErr] = BACKPROP(A, outErr) compute gradient and 

@@ -15,6 +15,7 @@ classdef RBM < handle & AbstractNet
         W;                     % connection weights
         b;                     % visible unit biases
         c;                     % hidden unit biases
+        beta;                  % 
         
         pretrainOpts = struct();
         trainOpts    = struct();
@@ -50,6 +51,8 @@ classdef RBM < handle & AbstractNet
             %       dropVis           -- hidden units dropout rate [optional]
             %       sparsity          -- sparseness objective [optional]
             %       sparseGain        -- learning rate gain for sparsity [optional]
+            %       decayNorm         -- weight decay penalty norm (1 or 2)
+%                   decayRate         -- penalty on the weights
             %
             %   Similary, training Opts support the following fields:
             %       lRate       -- learning rate
@@ -89,6 +92,10 @@ classdef RBM < handle & AbstractNet
             if ~isfield(pretrainOpts, 'momentumChangeDif')
                 pretrainOpts.momentumChange = 0;
             end
+            
+            if ~isfield(pretrainOpts, 'decayNorm')
+                pretrainOpts.decayNorm = -1;
+            end
             obj.pretrainOpts = pretrainOpts;
             
             if ~isfield(trainOpts, 'decayNorm')
@@ -97,10 +104,18 @@ classdef RBM < handle & AbstractNet
             obj.trainOpts    = trainOpts;
             
             % Initializing weights 'à la Bengio'
-            range = sqrt(6/(2*obj.nVis));
-            obj.W = 2 * range * (rand(nVis, nHid) - .5);
+            if ~isfield(trainOpts,'idStartWeights')
+                range = sqrt(6/(obj.nVis + obj.nHid));
+                obj.W = 2 * range * (rand(nVis, nHid) - .5);
+            else
+                obj.W = eye(nVis, nHid);
+            end
             obj.b = zeros(nVis, 1);
             obj.c = zeros(nHid, 1);
+            if isfield(trainOpts,'negStartBias')
+                obj.b = obj.b -1;
+                obj.c = obj.c -1;
+            end
         end
         
         % AbstractNet implementation ---------------------------------------- %
@@ -125,7 +140,7 @@ classdef RBM < handle & AbstractNet
             end
         end
 
-        function [] = pretrain(self, X)
+        function [] = pretrain(self, X,preve)
             nObs = size(X, 2);
             opts = self.pretrainOpts;
             dWold   = zeros(size(self.W));
@@ -133,9 +148,14 @@ classdef RBM < handle & AbstractNet
             dcold   = zeros(size(self.c));
             act     = zeros(self.nHid, 1); % mean activity of hidden units
             msreold = 0;
-            for e = 1:opts.nEpochs
+            for epoch = 1:opts.nEpochs
+                
                 shuffle  = randperm(nObs);
-
+                if isfield(self.trainOpts, 'cutTraining')
+                    e = preve+epoch;
+                else
+                    e = epoch;
+                end
                 % Batch loop
                 for batchBeg = 1:opts.batchSz:nObs
                     bind  = shuffle(batchBeg : min(nObs, ...
@@ -173,7 +193,11 @@ classdef RBM < handle & AbstractNet
                     self.W = self.W - opts.lRate * dW;
                     self.b = self.b - opts.lRate * db;
                     self.c = self.c - opts.lRate * dc;
-                    
+                    if opts.decayNorm == 2
+                         self.W = self.W - opts.lRate * opts.decayRate * self.W;
+                   elseif opts.decayNorm == 1
+                       self.W = self.W - opts.lRate * opts.decayRate * sign(self.W);
+                    end
                     % Save gradient
                     dWold = dW;
                     dbold = db;
@@ -242,6 +266,7 @@ classdef RBM < handle & AbstractNet
                     histogram(act)
                     drawnow;
                 end
+                opts.lRate = opts.lRate*opts.lRateDecay;
             end
         end
         
@@ -281,10 +306,8 @@ classdef RBM < handle & AbstractNet
             % Weight decay
             if opts.decayNorm == 2
                 self.W = self.W - opts.lRate * opts.decayRate * self.W;
-                self.c = self.c - opts.lRate * opts.decayRate * self.c;
             elseif opts.decayNorm == 1
                 self.W = self.W - opts.lRate * opts.decayRate * sign(self.W);
-                self.c = self.c - opts.lRate * opts.decayRate * sign(self.c);
             end
         end
         
@@ -321,7 +344,7 @@ classdef RBM < handle & AbstractNet
                 hmask = rand(size(hid0)) < opts.dropHid;
             end
             if opts.dropVis > 0
-                vmask = rand(size(X)) < opts.dropHid;
+                vmask = rand(size(X)) < opts.dropVis;
             end
 
             hid = hid0;
@@ -329,24 +352,24 @@ classdef RBM < handle & AbstractNet
                 if opts.sampleHid % sampling ?
                     hid = hid > rand(size(hid));
                 end
-                if opts.dropHid > 0 && k < opts.nGS % Dropout?
+                if opts.dropHid > 0 % Dropout?
                     hid = hid .* hmask / (1 - opts.dropHid);
                 end
                 vis = self.hid2vis(hid);
-                if opts.sampleVis && k < opts.nGS % sampling ?
+                if opts.sampleVis % sampling ?
                     vis = vis > rand(size(vis));
                 end
-                if opts.dropVis > 0 && k < opts.nGS  % Dropout?
+                if opts.dropVis > 0 % Dropout?
                     vis = vis .* vmask / (1 - opts.dropVis);
                     % TODO keep non masked visibles for CD but mask for hid
                     % computation.
                 end
-                
-                if k < opts.nGS
-                    hid = self.vis2hidbin(vis);
-                else
+                if k == opts.nGS
                     hid = self.vis2hidprob(vis);
+                else
+                    hid = self.vis2hidbin(vis);
                 end
+                
             end
             
             dW      = - (vis0 * hid0' - vis * hid') / nObs;
@@ -371,6 +394,11 @@ classdef RBM < handle & AbstractNet
 
         end
 
+        function msre = recErr(self,X)
+              R = self.hid2vis(self.vis2hidprob(X));
+              msre = sqrt(mean(mean((R - X) .^2)));
+
+        end
     end % methods
     
     methods(Static)

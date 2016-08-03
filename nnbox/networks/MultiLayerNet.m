@@ -24,6 +24,7 @@ classdef MultiLayerNet < handle & AbstractNet
         
         function [Y, A] = compute(self, X)
             nbNets = length(self.nets);
+            batchsize = size(X,ndims(X));
             
             if nargout > 1
                 computeA = true;
@@ -35,31 +36,37 @@ classdef MultiLayerNet < handle & AbstractNet
             for o = 1:nbNets
                 if computeA
                     [X, A{o}] = self.nets{o}.compute(X);
+                    if isa(self.nets{o},'CNN')
+                        X = reshape(X,numel(X)/batchsize,batchsize);
+                    end
                 else
                     X = self.nets{o}.compute(X);
+                    if isa(self.nets{o},'CNN')
+                        X = reshape(X,numel(X)/batchsize,batchsize);
+                    end
                 end
             end
             Y = X;
         end
         
-        function [] = pretrain(self, X)
+        function [] = pretrain(self, X, preve)
             for o = 1:length(self.nets)
                 if o > self.frozenBelow
-                    self.nets{o}.pretrain(X);    
+                    self.nets{o}.pretrain(X,preve);    
                 end
                 X = self.nets{o}.compute(X);
             end
         end
         
-        function [G, inErr] = backprop(self, A, outErr)
+        function [G, inErr] = backprop(self, A, outErr, varargin)
             G     = cell(length(self.nets), 1);
             inErr = [];
             % Backprop and compute gradient
             for l = length(self.nets):-1:self.frozenBelow + 2
-                [G{l}, outErr] = self.nets{l}.backprop(A{l}, outErr);
+                [G{l}, outErr] = self.nets{l}.backprop(A{l}, outErr,varargin);
             end
             bottom = self.frozenBelow + 1;
-            G{bottom} = self.nets{bottom}.backprop(A{bottom}, outErr);
+            [G{bottom},inErr] = self.nets{bottom}.backprop(A{bottom}, outErr,varargin);
             
             % Silently ignore gradient backpropagation eventhough G is 
             % requested

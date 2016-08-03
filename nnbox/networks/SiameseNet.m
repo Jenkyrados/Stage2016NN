@@ -50,15 +50,17 @@ classdef SiameseNet < AbstractNet & handle
         
         function [Y, A] = compute(self, X)
             if nargout == 1
-                Y = cell(self.nNets, 1);
+                Y = [];
                 for i = 1:self.nNets
-                    Y{i} = self.net.compute(X{i});
+                    Y = vertcat(Y,self.net.compute(cell2mat(X(i,:))));
                 end
             else
-                Y = cell(self.nNets, 1);
-                A = cell(self.nNets, 1);
+                Y = [];
+                A = [];
                 for i = 1:self.nNets
-                    [Y{i}, A{i}] = self.net.compute(X{i});
+                    [tmpY, tmpA] = self.net.compute(cell2mat(X(i,:)));
+                    Y = vertcat(Y,tmpY);
+                    A = [A tmpA];
                 end
             end
         end
@@ -72,16 +74,19 @@ classdef SiameseNet < AbstractNet & handle
         end
         
         function [G, inErr] = backprop(self, A, outErr)
-            G     = cell(self.nNets, 1);
-            inErr = cell(self.nNets, 1);
+            outErr = reshape(outErr,self.nNets,size(outErr,1)/self.nNets,size(outErr,2));
+            G     = [];
+            inErr = [];
             for c = 1:self.nNets
-                [G{c}, inErr{c}] = self.net.backprop(A{c}, outErr{c});
+                [tmpG, tmpinErr] = self.net.backprop(A(:,c), reshape(outErr(c,:,:),size(outErr,2),size(outErr,3)));
+                G = [G tmpG];
+                inErr = vertcat(inErr,tmpinErr);
             end
         end
         
         function gradientupdate(self, G)
             for c = 1:self.nNets
-                self.net.gradientupdate(G{c});
+                self.net.gradientupdate(G(:,c));
             end
         end
     end

@@ -10,6 +10,7 @@ classdef CrossEntropyCost < ErrorCost
         
         function C = compute(~, O, Y)
             assert(isnumeric(O), 'Only numeric O is supported');
+            O = max(0.001,min(0.999,O));
             assert(islogical(Y), 'Y must be a boolean array');
             C     = zeros(size(O));
             C(Y)  = - log(O(Y));
@@ -19,6 +20,8 @@ classdef CrossEntropyCost < ErrorCost
         
         function C = computeEach(~, O, Y)
             assert(isnumeric(O), 'Only numeric O is supported');
+                        O = max(0.001,min(0.999,O));
+
             assert(islogical(Y), 'Y must be a boolean array');
             C     = zeros(size(O));
             C(Y)  = - log(O(Y));
@@ -28,6 +31,8 @@ classdef CrossEntropyCost < ErrorCost
         
         function C = gradient(~, O, Y)
             assert(isnumeric(O), 'Only numeric O is supported');
+                        O = max(0.001,min(0.999,O));
+
             assert(islogical(Y), 'Y must be a boolean array');
             C     = zeros(size(O));
             C(Y)  = - 1 ./ O(Y);

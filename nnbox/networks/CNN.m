@@ -13,17 +13,21 @@ classdef CNN < handle & AbstractNet
         inSz;         % input image size
         poolSz;       % pool size
         
+        pretrainOpts; % pretraining options
         trainOpts;    % training options
         
         filters;      % filters weights
         b;            % biases
+        
+        dWold;        % previous delta in weights
+        dbold;        % previous delta in biases
     end
     
     methods
         
         % Constructor ------------------------------------------------------- %
         
-        function obj = CNN(inSz, filterSz, nFilters, trainOpts, varargin)
+        function obj = CNN(inSz, filterSz, nFilters, pretrainOpts,trainOpts, varargin)
             % CNN Build a CNN instance
             %   obj = CNN([ih iw], [fh fw], N, O) returns an instance of
             %   CNN with N filters fh by fw large, accepting inputs of size
@@ -53,11 +57,18 @@ classdef CNN < handle & AbstractNet
             obj.fSz       = filterSz;
             obj.inSz      = inSz;
             obj.poolSz    = [];
+            if ~isfield(trainOpts, 'momentum')
+                trainOpts.momentum = 0;
+            end
             obj.trainOpts = trainOpts;
-            wRange        = 1 / sqrt(prod(filterSz) * inSz(3));
+
+            obj.dWold = zeros(filterSz(1),filterSz(2),inSz(3),nFilters);
+            obj.dbold = zeros(nFilters,1);
+            obj.pretrainOpts = pretrainOpts;
+            wRange        =sqrt(6/(inSz(3)*prod(filterSz)));
             obj.filters   = ...
                 rand([filterSz inSz(3) nFilters], 'single') * wRange;
-            obj.b         = .5 * ones(nFilters, 1, 'single') * wRange;
+            obj.b         = zeros(nFilters, 1, 'single');
             
             assert(mod(numel(varargin), 2) == 0, ...
                 'options should be ''option'', values pairs');
@@ -89,7 +100,7 @@ classdef CNN < handle & AbstractNet
                 S = floor((self.inSz(1:2) - self.fSz) ./ self.stride) + 1;
             end
             if ~isempty(self.poolSz)
-                S = S ./ self.poolSz;
+                S = floor(S ./ self.poolSz);
             end
             S = [S self.nFilters];
         end
@@ -98,7 +109,7 @@ classdef CNN < handle & AbstractNet
             assert(isa(X, 'single'), 'only single precision input supported');
             
             % Convolution
-            X = reshape(X, size(X, 1), size(X,2), self.nChannels, []);
+            X = reshape(X, self.inSz(1), self.inSz(2), self.nChannels, []);
 
             % Save values for backprop
             if nargin > 1
@@ -129,39 +140,67 @@ classdef CNN < handle & AbstractNet
             end
             
             % Rectification
-            Y = max(0, Y);
+            %
+            %Y = max(0, Y);
         end
         
-        function [] = pretrain(~, ~)
-            % Not implemented
-            warning('Pretraining not implemented for CNN');
+        function [] = pretrain(self, X, preve)
+            % Use an RBM to pretrain a filter
+            patchMaker = PatchNet([self.inSz(1) self.inSz(2)],self.fSz,self.fSz-1);
+            train = reshape(X,self.inSz(1),self.inSz(2),size(X,ndims(X))*self.nChannels);
+                trainer = RBM(prod(self.fSz)*self.nChannels,self.nFilters,self.pretrainOpts, self.trainOpts);
+                fulltrainX = cell(prod(self.inSz(1:2)-self.fSz + 1)*self.nChannels,1000);
+                ex = randperm(size(X,ndims(X)),1000);
+                for j = 1:1000
+                    for i = 1:self.nChannels
+                        fulltrainX(i:self.nChannels:end,j) = patchMaker.compute(train(:,:,ex(j)+i));
+                    end
+                end
+                trainingX = reshape(cell2mat(fulltrainX),prod(self.fSz)*self.nChannels,prod(self.inSz(1:2)-self.fSz + 1)*1000);
+                trainer.pretrain(trainingX,preve);
+            self.filters = reshape(trainer.W,self.fSz(1),self.fSz(2),self.nChannels,self.nFilters);
+
         end
         
-        function [G, inErr] = backprop(self, A, outErr)
+        function [G, inErr] = backprop(self, A, outErr, varargin)
             % Unpool and rectification derivation
+            opts = self.trainOpts;
+            if isfield(opts,'momentumChange') && opts.momentumChange == cell2mat(varargin{1})
+                self.trainOpts.momentum = opts.momentumNew;
+            end
+            out = self.outsize();
+            outErr = reshape(outErr,out(1),out(2),out(3),size(outErr,ndims(outErr)));
             if ~isempty(self.poolSz)
                 outErr = vl_nnpool(A.Y, self.poolSz, outErr, ...
-                    'Stride', self.poolSz) .* (A.Y > 0);
+                    'Stride', self.poolSz);% .* (A.Y > 0);
             end
-            
             % Dropout
             if isfield(self.trainOpts, 'dropout')
                 outErr = bsxfun(@times, outErr, A.mask);
             end
             
             % Backprop
+            if isfield(self.trainOpts, 'NAG')
+                add = opts.lRate * self.dWold * opts.momentum;
+            else
+                add = zeros('like',self.dWold');
+            end
+                
             if ~isempty(self.stride)
-                [inErr, G.dW, G.db] = vl_nnconv(A.X, self.filters, self.b, ...
+                [inErr, G.dW, G.db] = vl_nnconv(A.X, self.filters+add, self.b, ...
                     outErr, 'Stride', self.stride);
             else
-                [inErr, G.dW, G.db] = vl_nnconv(A.X, self.filters, self.b, ...
+                [inErr, G.dW, G.db] = vl_nnconv(A.X, self.filters+add, self.b, ...
                     outErr);
             end
+            G.dW = self.dWold * opts.momentum + (1-opts.momentum)*G.dW;
+            G.db = self.dbold * opts.momentum + (1-opts.momentum)*G.db;
+            self.dWold = G.dW;
+            self.dbold = G.db;
         end
         
         function [] = gradientupdate(self, G)
             opts = self.trainOpts;
-            
             % Gradient update
             self.filters = self.filters - opts.lRate * G.dW;
             if ~isempty(self.b)
@@ -170,11 +209,12 @@ classdef CNN < handle & AbstractNet
             
             % Weight decay
             if isfield(opts, 'decayNorm') && opts.decayNorm == 2
-                self.W = self.W - opts.lRate * opts.decayRate * self.W;
-                self.b = self.b - opts.lRate * opts.decayRate * self.b;
+                self.filters = self.filters - opts.decayRate * self.filters;
+                self.b = self.b - opts.decayRate * self.b;
             elseif isfield(opts, 'decayNorm') && opts.decayNorm == 1
-                self.W = self.W - opts.lRate * opts.decayRate * sign(self.W);
-                self.b = self.b - opts.lRate * opts.decayRate * sign(self.b);
+                self.filters = self.filters - opts.decayRate * sign(self.filters);
+                self.b = self.b - opts.decayRate * sign(self.b);
+
             end
         end
     end

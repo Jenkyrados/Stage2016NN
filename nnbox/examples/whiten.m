@@ -1,6 +1,6 @@
-function [X] = whiten(X,fudgefactor)
-X = bsxfun(@minus, double(X), mean(X));
-A = X'*X;
-[V,D] = eig(A);
-X = X*V*diag(1./(diag(D)+fudgefactor).^(1/2))*V';
+function [Xret] = whiten(X,fudgefactor,~)
+    Xt = bsxfun(@minus, double(X), mean(X));
+    A = Xt*Xt'/size(X,2);
+    [U,S,V] = svd(A);
+    Xret = U*diag(1./(diag(S)+fudgefactor).^(1/2))*U'*Xt;
 end

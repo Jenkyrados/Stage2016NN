@@ -10,6 +10,9 @@ classdef Perceptron < handle & AbstractNet
         W;         % connection weights
         b;         % bias
         trainOpts; % training options
+        
+        dWold;
+        dbold;
     end
     
     methods
@@ -35,11 +38,18 @@ classdef Perceptron < handle & AbstractNet
                     && isfield(trainOpts, 'decayRate'), ...
                     'specify both decay norm and rate');
             end
+            if ~isfield(trainOpts, 'momentum')
+                trainOpts.momentum = 0;
+            end
+            
             obj.trainOpts = trainOpts;
             
             % Initializing weights
-            obj.W = randn(inSz, outSz) / sqrt(inSz);
+            range = sqrt(6/(2*inSz));
+            obj.W = 2 * range * (rand(inSz, outSz) - .5);
+            obj.dWold = zeros('like',obj.W);
             obj.b = zeros(outSz, 1);
+            obj.dbold = obj.b;
         end
         
         % AbstractNet implementation ---------------------------------------- %
@@ -53,19 +63,24 @@ classdef Perceptron < handle & AbstractNet
         end
         
         function [Y, A] = compute(self, X)
+            if isfield(self.trainOpts, 'DAG')
+                add = opts.lRate * self.dWold * opts.momentum;
+            else
+                add = 0;
+            end
             % training with dropout
             if nargout == 2 && isfield(self.trainOpts, 'dropout')
                 A.mask  = rand(self.insize(), 1) > self.trainOpts.dropout;
                 Wmasked = bsxfun(@times, self.W, ...
                     A.mask ./ (1 - self.trainOpts.dropout));
                 % Save necessary values for gradient computation
-                A.S = bsxfun(@plus, Wmasked' * X, self.b); % stimuli
+                A.S = bsxfun(@plus, Wmasked' * X+add, self.b); % stimuli
                 A.X = X;
                 Y   = self.activation(A.S);
                 A.Y = Y;
             elseif nargout == 2 % training
                 % Save necessary values for gradient computation
-                A.S = bsxfun(@plus, self.W' * X, self.b); % stimuli
+                A.S = bsxfun(@plus, self.W' * X+add, self.b); % stimuli
                 A.X = X;
                 Y   = self.activation(A.S);
                 A.Y = Y;
@@ -78,9 +93,11 @@ classdef Perceptron < handle & AbstractNet
             % Nothing to do
         end
         
-        function [G, inErr] = backprop(self, A, outErr)            
+        function [G, inErr] = backprop(self, A, outErr,varargin)            
             % Gradient computation
             delta  = outErr .* A.Y .* (1 - A.Y);
+            % Cross entropy wise : 
+            %delta = A.Y - outErr;
             G.dW   = A.X * delta';
             G.db   = sum(delta, 2);
             
@@ -101,14 +118,17 @@ classdef Perceptron < handle & AbstractNet
             % Gradient update
             self.W = self.W - opts.lRate * G.dW;
             self.b = self.b - opts.lRate * G.db;
+            G.dW = self.dWold * self.trainOpts.momentum + (1-self.trainOpts.momentum)*G.dW;
+            G.db = self.dbold * self.trainOpts.momentum + (1-self.trainOpts.momentum)*G.db;
+            
             
             % Weight decay
             if isfield(opts, 'decayNorm') && opts.decayNorm == 2
                 self.W = self.W - opts.lRate * opts.decayRate * self.W;
-                self.b = self.b - opts.lRate * opts.decayRate * self.b;
+                %self.b = self.b - opts.lRate * opts.decayRate * self.b;
             elseif isfield(opts, 'decayNorm') && opts.decayNorm == 1
                 self.W = self.W - opts.lRate * opts.decayRate * sign(self.W);
-                self.b = self.b - opts.lRate * opts.decayRate * sign(self.b);
+                %self.b = self.b - opts.lRate * opts.decayRate * sign(self.b);
             end
         end
         
@@ -120,7 +140,6 @@ classdef Perceptron < handle & AbstractNet
             % Sigmoïd activation
             Y = 1 ./ (1 + exp(-X));
         end
-        
     end
     
 end % classdef RBM

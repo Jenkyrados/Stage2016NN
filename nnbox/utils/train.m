@@ -25,8 +25,32 @@ function trained = train(net, costFn, X, Y, opts)
 assert(isa(net, 'AbstractNet'), ...
     'net should implement AbstractNet');
 assert(isnumeric(Y) || islogical(Y), 'Only numeric output is supported');
-
+minErr = Inf('double');
+errCount = 0;
+    nS  = size(X, ndims(X));
+    szX = size(X);
+    szX = szX(1:end-1);
+    szY = size(Y);
+    szY = szY(1:end-1);
+    X   = reshape(X, [], nS);
+    Y   = reshape(Y, [], nS);
+    if isfield(opts, 'validationX') 
+        validationX = opts.validationX;
+        validationY = opts.validationY;
+    else
+        validationX = trainX;
+        validationY = trainY;
+    end
+    validnS = size(validationX,ndims(validationX));
+    validszX = size(validationX);
+    validszX = validszX(1:end-1);
+    validszY = size(validationY);
+    validszY = validszY(1:end-1);
+    validationX = reshape(validationX,[],validnS);
+    validationY = reshape(validationY,[],validnS);
+    saved = net;
 if ~isfield(opts, 'batchFn') && isfield(opts, 'batchSz')
+
     opts.batchFn = @simpleBatchFn;
 end
 
@@ -42,12 +66,14 @@ for i = 1:opts.nIter
         idx = [];
         moreBatches = true; % set to any value to get inside the loop
         while moreBatches
-            [batchX, batchY, idx] = opts.batchFn(X, Y, opts.batchSz, idx);
+            [batchX, batchY, idx] = opts.batchFn(X,Y,nS,szX,szY,opts.batchSz, idx);
             [O, A] = trained.compute(batchX);     % forward pass
             moreBatches = ~isempty(idx);
             clear batchX;                         % release memory
-            outGrad = costFn.gradient(O, batchY); % error derivative
-            G = trained.backprop(A, outGrad);     % backpropagation
+            %outGrad = costFn.gradient(O, batchY); % error derivative
+            % For now, using softmax, hence no need to calc the cross - instead using real
+            outGrad = batchY;
+            G = trained.backprop(A, outGrad,i);     % backpropagation
             trained.gradientupdate(G);            % update
         end
         
@@ -68,7 +94,7 @@ for i = 1:opts.nIter
 			idx         = [];
 			while moreBatches
 				[batchX, batchY, idx] = ...
-					opts.batchFn(X, Y, opts.batchSz, idx);
+					opts.batchFn(validationX, validationY,validnS, validszX, validszY, opts.batchSz, idx);
 				nSamples    = size(batchY, ndims(batchY));
 				O           = trained.compute(batchX);
 				E           = [E costFn.compute(O, batchY)];
@@ -79,7 +105,19 @@ for i = 1:opts.nIter
 		else
 			O  = trained.compute(X);
 			MC = costFn.compute(O, Y);
-		end
+        end
+        if isfield(opts, 'errCounts')
+            if (MC < minErr)
+                errCount = 0;
+                minErr = MC;
+                saved = trained;
+            else
+                errCount = errCount +1;
+            end 
+            if (errCount == opts.errCounts)
+                return;
+            end
+        end
 		fprintf('%03d , Error cost : %1.3e\n', i, MC);
     end
 end

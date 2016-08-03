@@ -1,0 +1,317 @@
+% This file demonstrates the use of the NNBox on the MNIST figure database
+% Using the model from Hinton, G. E., Osindero, S., & Teh, Y. W. (2006). A
+% fast learning algorithm for deep belief nets. Neural computation, 18(7),
+% 1527-1554.
+tic
+patchsize = 20;
+N = 100;
+nnbox_dir = '../';
+addpath(fullfile(nnbox_dir, 'networks'));
+addpath(fullfile(nnbox_dir, 'costfun'));
+addpath(fullfile(nnbox_dir, 'utils'));
+
+
+%% Load Database --------------------------------------------------------------
+
+[trainX, trainY, validationX, validationY, testX, testY] = getCIFAR();%real small normalization
+trainX = reshape(single(trainX), 32*32*3,40000);
+trainY = ((0:9)' * ones(1, 40000)) == (ones(10, 1) * double(trainY'));%real small normalization
+validationX = reshape(single(validationX), 32*32*3,10000);
+validationY = ((0:9)' * ones(1, 10000)) == (ones(10, 1) * double(validationY'));
+testX  = reshape(single(testX), 32*32*3, 10000); %real small normalizatioestY  = ((0:9)' * ones(1, 10000)) == (ones(10, 1) * double(testY'));
+testY = ((0:9)' * ones(1, 10000)) == (ones(10, 1) * double(testY'));%real small normalization
+%% Setup network --------------------------------------------------------------
+
+% % Start with an empty multilayer network skeleton
+net  = MultiLayerNet();
+pretrainOpts = struct( ...
+    'nEpochs', 10, ...
+    'wDecayDelay',0,...
+    'lRate', 1e-4, ...
+    'lRateDecay',0.99,...
+    'batchSz', 10, ...
+    'dropout', 0.3, ...
+    'displayEvery', 5);
+trainOpts = struct( ...
+    'lRate', 1e-4, ...
+    'NAG', true,...
+    'momentum',0.9,...
+    'batchSz', 100);
+cnn1 = CNN([32 32 3], [3 3], N, pretrainOpts, trainOpts, 'pool', [3 3]);
+% Add first layer
+net.add(cnn1);
+% t = net.compute(trainX(:,1));
+cnn2 = CNN([10 10 N], [3 3], N, pretrainOpts, trainOpts, 'pool', [2 2]);
+% Add first layer
+net.add(cnn2);
+%  cnn3 = CNN([4 4 N], [2 2], N, pretrainOpts, trainOpts, 'pool', [2 2]);
+% % Add first layer
+%  net.add(cnn3);
+% Train ----------------------------------------------------------------------
+
+% Add fully connected layer above
+% rbm3 = RBM(500, 2000, pretrainOpts, trainOpts);
+% net.add(rbm3);
+per2  = SoftmaxPerceptron(N*16, 10, trainOpts);
+net.add(per2);
+% Train in a supervized fashion
+fprintf('Fine-tuning\n');
+
+trainOpts = struct(...
+    'nIter', 100, ...
+    'validationX', validationX,...
+    'validationY', validationY,...
+    'errCounts', 5,...
+    'batchSz', 100, ...
+    'displayEvery', 3);
+train(net, CrossEntropyCost(), trainX, trainY, trainOpts);
+disp(toc)
+
+disp('Confusion matrix:')
+[~, tmp] = max(net.compute(testX));
+tmp      = tmp - 1; % first class is 0
+Y        = bsxfun(@eq, (0:9)' * ones(1, 10000), tmp);
+confusion = double(testY) * double(Y');
+disp(confusion);
+
+disp('Classification error (testing):');
+disp(mean(sum(Y ~= testY) > 0));
+
+% disp('Classification error (training):');
+% [~, tmp] = max(net.compute(trainX));
+% tmp      = tmp - 1; % first class is 0
+% Y        = bsxfun(@eq, (0:9)' * ones(1, 40000), tmp);
+% disp(mean(sum(Y ~= trainY) > 0));
+% 
+% patchMaker = PatchNet([32 32],[patchsize patchsize], [patchsize-3 patchsize-3]);
+% 
+% % Setup first layer
+% pretrainOpts = struct( ...
+%     'nEpochs', N, ...
+%     'dropoutVis',0.2,...
+%     'dropoutHid',0.5,...
+%     'momentum', 0.9, ...
+%     'momentumChange', 0.9, ...
+%     'momentumChangeDif', 0.01, ...
+%     'wDecayDelay',0,...
+%     'decayNorm',1,...
+%     'decayRate',0.001,...
+%     'lRate', 1e-2, ...
+%     'lRateDecay', 0.9,...
+%     'batchSz', 100, ... 
+%     'displayEvery', 5);
+% trainOpts = struct(...
+%     'dropout',0.5,...
+%     'lRate', 1e-2, ...
+%     'batchSz', 100);
+% rbm1 = RBM(patchsize*patchsize*3, 500, pretrainOpts, trainOpts);
+% 
+% % Add first layer
+% net.add(rbm1);
+% 
+%  pretrainOpts.dropoutVis = 0.2;
+%  % Setup second layer
+%  trainOpts.dropout = 0.5;
+% rbm2 = RBM(500, 300, pretrainOpts, trainOpts);
+% rbm3 = RBM(300, 10, pretrainOpts, trainOpts);
+% 
+%  net.add(rbm2);
+%  net.add(rbm3);
+% % rbm3 = RBM(320, 160, pretrainOpts, trainOpts);
+% % 
+% % net.add(rbm3);
+% %% Pretrain network -----------------------------------------------------------
+%  for i = 1:20
+%     disp(i);
+%     fulltrainX = cell(3,25,5000);
+%     ex = randperm(40000,5000);
+%     for j = 1:5000
+%         for k= 0:2
+%          fulltrainX(k+1,:,j) = patchMaker.compute(trainX(:,:,ex(j)+k));
+%         end
+%     end
+%     trainingX = reshape(cell2mat(fulltrainX),patchsize*patchsize*3,25*5000);
+%     net.pretrain(trainingX,0); % note: MultilayerNet will pretrain layerwise
+% end
+% %% Train ----------------------------------------------------------------------
+% siamese = MultiLayerNet();
+% siamese.add(SiameseNet(net,25*3));
+% 
+% %Add fully connected layer above
+% per  = Perceptron(25*10*3, 500, trainOpts);
+% siamese.add(per);
+% per2 = SoftmaxPerceptron(500,10, trainOpts);
+% siamese.add(per2);
+% 
+% % Train in a supervized fashion
+% fprintf('Fine-tuning\n');
+% 
+% trainOpts = struct(...
+%     'nIter', 10, ...
+%     'batchSz', 100, ...
+%     'displayEvery', 3);
+% 
+%  for i = 1:20
+%     disp(i);
+%     fulltrainX = cell(25*3,5000);
+%     fulltrainY = zeros(10,5000);        
+%     ex = randperm(40000,5000);
+%     for j = 1:5000
+%         for k = 0:2
+%             fulltrainX((k*25+1):((k+1)*25),j) = patchMaker.compute(trainX(:,:,ex(j)+k));
+%         end
+%         fulltrainY(:,j) = trainY(:,ex(j));
+%     end
+%     fulltrainY = logical(fulltrainY);
+%     train(siamese, CrossEntropyCost(), fulltrainX, fulltrainY, validationX, validationY, trainOpts);
+% end
+% toc
+% 
+% %% Results --------------------------------------------------------------------
+% fulltestX = cell(25,10000);
+% fulltestY = testY;
+% 
+% for ex = 1:10000;
+%     fulltestX(:,ex) = patchMaker.compute(testX(:,:,ex));
+% end
+% disp('Confusion matrix:')
+% [~, tmp] = max(siamese.compute(fulltestX));
+% tmp      = tmp - 1; % first class is 0
+% Y        = bsxfun(@eq, (0:9)' * ones(1, 10000), tmp);
+% confusion = double(fulltestY) * double(Y');
+% disp(confusion);
+% 
+% disp('Classification error (testing):');
+% disp(mean(sum(Y ~= fulltestY) > 0));
+% 
+% disp('Classification error (training):');
+% [~, tmp] = max(siamese.compute(fulltrainX));
+% tmp      = tmp - 1; % first class is 0
+% Y        = bsxfun(@eq, (0:9)' * ones(1, 1000), tmp);
+% disp(mean(sum(Y ~= fulltrainY) > 0));
+% 
+% disp('Displaying mean reconstruction error (testing)')
+% disp(net.nets{1}.recErr(fulltestX));
+% 
+% disp('Displaying mean reconstruction error (training)')
+% disp(net.nets{1}.recErr(fulltrainX));
+% 
+% disp('Showing first layer weights as filters (20 largest L2 norm)');
+% weights = net.nets{1}.W;
+% [~, order] = sort(sum(weights .^2), 'descend');
+% colormap gray
+% for i = 1:20
+%     subplot(5, 4, i);
+%     imagesc(reshape(weights(:, order(i)), patchsize, patchsize));
+%     axis image
+%     axis off
+% end
+
+% Setup first layer
+% pretrainOpts = struct( ...
+%     'dropVis', 0.20,...
+%     'dropHid', 0.5,...
+%     'nEpochs', 1, ...
+%     'momentum', 0.9, ...
+%     'momentumChange', 0.9, ...
+%     'momentumChangeDif', 0.01, ...
+%     'wDecayDelay',0,...
+%     'decayNorm',1,...
+%     'decayRate',0.0001,...
+%     'lRate', 5e-3, ...
+%     'lRateDecay',0.97,...
+%     'batchSz', 100, ...
+%     'dropout', 0.3, ...
+%     'sparsity', 0.05,...
+%     'sparseGain', 0.1,...
+%     'displayEvery', 5);
+% trainOpts = struct( ...
+%     'lRate', 5e-4, ...
+%     'batchSz', 100);
+% rbm1 = RBM(32*32*3, 500, pretrainOpts, trainOpts);
+% 
+% % Add first layer
+% net.add(rbm1);
+% 
+% % Setup second layer
+% pretrainOpts.dropVis = 0.5;
+% trainOpts = struct( ...
+%     'lRate', 5e-4, ...
+%     'batchSz', 100);
+% rbm2 = RBM(500, 200, pretrainOpts, trainOpts);
+% 
+% % % Add second layer
+% net.add(rbm2);
+% %  rbm5 = RBM(1000, 1000, pretrainOpts, trainOpts);
+% %  
+% %  % Add second layer
+% %  net.add(rbm5);
+% %  rbm6 = RBM(1000, 1000, pretrainOpts, trainOpts);
+% %  
+% %  % Add second layer
+% %  net.add(rbm6);
+% % rbm7 = RBM(1000, 1000, pretrainOpts, trainOpts);
+% % 
+% % % Add second layer
+% % net.add(rbm7);
+% % rbm8 = RBM(1000, 100, pretrainOpts, trainOpts);
+% % 
+% % % Add second layer
+% % net.add(rbm8);
+% %% Pretrain network -----------------------------------------------------------
+% fprintf('Pretraining first two layers\n');
+% for i=0:50
+%     disp(i)
+%     net.pretrain(trainX,i); % note: MultilayerNet will pretrain layerwise
+% end
+% 
+% %% Train ----------------------------------------------------------------------
+% 
+% %Add fully connected layer above
+% per  = Perceptron(200, 10, trainOpts);
+% net.add(per);
+% 
+% % Train in a supervized fashion
+% fprintf('Fine-tuning\n');
+% 
+% trainOpts = struct(...
+%     'nIter', 50, ...
+%     'batchSz', 100, ...
+%     'displayEvery', 3);
+% train(net, CrossEntropyCost(), trainX, trainY, trainOpts);
+% toc
+% 
+% %% Results --------------------------------------------------------------------
+% 
+% disp('Confusion matrix:')
+% [~, tmp] = max(net.compute(testX));
+% tmp      = tmp - 1; % first class is 0
+% Y        = bsxfun(@eq, (0:9)' * ones(1, 10000), tmp);
+% confusion = double(testY) * double(Y');
+% disp(confusion);
+% 
+% disp('Classification error (testing):');
+% disp(mean(sum(Y ~= testY) > 0));
+% 
+% disp('Classification error (training):');
+% [~, tmp] = max(net.compute(trainX));
+% tmp      = tmp - 1; % first class is 0
+% Y        = bsxfun(@eq, (0:9)' * ones(1, 50000), tmp);
+% disp(mean(sum(Y ~= trainY) > 0));
+% 
+% disp('Displaying mean reconstruction error (testing)')
+% disp(net.nets{1}.recErr(testX));
+% 
+% disp('Displaying mean reconstruction error (training)')
+% disp(net.nets{1}.recErr(trainX));
+% 
+% disp('Showing first layer weights as filters (20 largest L2 norm)');
+% weights = net.nets{1}.W;
+% [~, order] = sort(sum(weights .^2), 'descend');
+% colormap gray
+% for i = 1:20
+%     subplot(5, 4, i);
+%     imagesc(reshape(weights(:, order(i)), 32,32,3));
+%     axis image
+%     axis off
+% end

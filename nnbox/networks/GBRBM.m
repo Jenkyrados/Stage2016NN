@@ -25,7 +25,7 @@ classdef GBRBM < handle & RBM
             
             nObs = size(X, 2);
             vis0 = X;
-            hid0 = self.vis2hid(vis0);
+            hid0 = self.vis2hidbin(vis0);
             
             % Dropout masks
             if opts.dropHid > 0
@@ -52,7 +52,11 @@ classdef GBRBM < handle & RBM
                     % TODO keep non masked visibles for CD but mask for hid
                     % computation.
                 end
-                hid = self.vis2hid(vis);
+                if k < opts.nGS
+                    hid = self.vis2hidbin(vis);
+                else
+                    hid = self.vis2hidprob(vis);
+                end
             end
             
             dW      = - (vis0 * hid0' - vis * hid') / nObs;

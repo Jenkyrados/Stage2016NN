@@ -1,0 +1,14 @@
+% Gets the Faces from sheffield
+function [trainX,trainY,testX,testY] = getFACES()
+    path = fileparts(mfilename('fullpath'));
+    trainX = zeros(50000,3072);
+    trainY = zeros(50000,1);
+    for i = 1:5
+        load(fullfile(path,strcat('cifar-10-batches-mat/data_batch',i,'.mat')));
+        trainX(((i-1)*10000+1):i*10000,:) = data;
+        trainX(((i-1)*10000+1):i*10000,:) = labels;
+    end
+    trainX(((i-1)*10000+1):i*10000,:) = data;
+        
+
+end

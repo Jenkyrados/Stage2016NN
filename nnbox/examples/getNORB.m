@@ -1,4 +1,4 @@
-function [trainX, trainY, testX, testY] = getNORB(randamount, size)
+function [trainX, trainY, testX, testY] = getNORB(randamount , size)
     path = fileparts(mfilename('fullpath'));
     
     % Download dataset
@@ -32,13 +32,11 @@ function [trainX, trainY, testX, testY] = getNORB(randamount, size)
     trainX = fread(f, 48600 * 96 * 96,'uint8=>uint8');
     trainX = swapbytes(trainX);
     trainX = reshape(trainX, 96, 96, 48600);
-    if randamount <= 0
-        trainX = trainX(1:3:end,1:3:end,:);
-    else
+    if nargin > 1
         realX = zeros(size, size, randamount);
         for i = 1:randamount
-            realX(:,:,i) = whiten(trainX(randi(96-size+1)+(0:size-1), ...
-                randi(96-size+1)+(0:size-1), randi(48600)),0.1);
+            realX(:,:,i) = trainX(randi(96-size+1)+(0:size-1), ...
+                randi(96-size+1)+(0:size-1), randi(48600));
         end
         trainX = realX;
     end
@@ -71,7 +69,6 @@ function [trainX, trainY, testX, testY] = getNORB(randamount, size)
     testX = fread(f, 48600 * 96 * 96);
     testX = swapbytes(testX);
     testX = reshape(testX, 96, 96, 48600);
-    testX = testX(1:3:end,1:3:end,:);
     testX = permute(testX, [2, 1, 3]);
     fclose(f);
     delete(fullfile(path, 't10k-images-idx3-ubyte'));

@@ -1,4 +1,4 @@
-function [batchX, batchY, idx] = simpleBatchFn(X, Y, batchSz, idx)
+function [batchX, batchY, idx] = simpleBatchFn(X, Y,nS,szX,szY, batchSz, idx)
 % Generates batches from a dataset
 %   [batchX, batchY, I1] = SIMPLEBATCHFN(X, Y, N, []) Generates on batch of
 %   N samples out of the array based dataset X and Y (assuming samples are
@@ -19,13 +19,6 @@ function [batchX, batchY, idx] = simpleBatchFn(X, Y, batchSz, idx)
 %           [batchX, batchY, I] = opts.batchFn(X, Y, N, I);
 %       end
 
-    nS  = size(X, ndims(X));
-    szX = size(X);
-    szX = szX(1:end-1);
-    szY = size(Y);
-    szY = szY(1:end-1);
-    X   = reshape(X, [], nS);
-    Y   = reshape(Y, [], nS);
     
     if isempty(idx) % first mini-batch
         idx = randperm(nS);
